@@ -1,0 +1,74 @@
+# ============================================================
+# docker-compose.yml (backend/)
+# Complementa —sin tocarlo— al docker-compose.yml que ya vive en
+# "Code P2G/". Levanta la misma base Postgres (reutilizando
+# Code P2G/db/schema.sql y Code P2G/db/seed.sql tal cual están)
+# más la migración propia del backend, y agrega el servicio de la
+# API en Node/Express.
+#
+# Cómo usarlo:
+#   1. Pararse en esta carpeta (backend/) y correr:
+#        docker compose up -d --build
+#   2. La API queda en http://localhost:3000
+#      Adminer (para ver las tablas) en http://localhost:8080
+#        Sistema: PostgreSQL · Servidor: db
+#        Usuario: polotec · Contraseña: polotec · Base: polotec
+#
+# Si ya tenías levantado el docker-compose.yml de "Code P2G/" por
+# separado, bajalo primero (docker compose down, parado en esa
+# carpeta) para no chocar por el puerto 5432/8080 ya ocupado.
+#
+# Para resetear todo de cero:
+#   docker compose down -v && docker compose up -d --build
+# ============================================================
+
+services:
+  db:
+    image: postgres:16
+    container_name: polotec-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: polotec
+      POSTGRES_PASSWORD: polotec
+      POSTGRES_DB: polotec
+    ports:
+      - "5432:5432"
+    volumes:
+      - polotec-db-data:/var/lib/postgresql/data
+      - "../Code P2G/db/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro"
+      - "../Code P2G/db/seed.sql:/docker-entrypoint-initdb.d/02-seed.sql:ro"
+      - ./src/db/migrations/001_backend_additions.sql:/docker-entrypoint-initdb.d/03-backend-additions.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U polotec -d polotec"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  adminer:
+    image: adminer
+    container_name: polotec-adminer
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    depends_on:
+      - db
+
+  api:
+    build: .
+    container_name: polotec-api
+    restart: unless-stopped
+    environment:
+      PORT: 3000
+      NODE_ENV: production
+      DATABASE_URL: postgresql://polotec:polotec@db:5432/polotec
+      JWT_SECRET: cambiar-este-secreto-en-produccion
+      JWT_EXPIRES_IN: 7d
+      CORS_ORIGIN: http://localhost:5500,http://127.0.0.1:5500,http://localhost:5173
+    ports:
+      - "3000:3000"
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  polotec-db-data:
